@@ -64,7 +64,6 @@ class MemoryMonitor:
     
     def scan_process_memory(self, pid, initial_value):
         """扫描进程内存，找到所有 initial_value 的地址"""
-        self.found_addresses = []
         initial_bytes = struct.pack('<I', initial_value)  # 小端序 4 字节
         h_process = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
         if not h_process:
@@ -111,7 +110,7 @@ class MemoryMonitor:
     def monitor_changes(self, pid, addresses, target_value, callback=None):
         """监控内存变化"""
         target_bytes = struct.pack('<I', target_value)
-        self.changed_addresses = []
+        
         
         while self.monitoring:
             for addr in addresses[:]:
@@ -150,12 +149,42 @@ class MemoryMonitor:
                     CloseHandle(h_process)
             
             time.sleep(1)
-        
+
         print("监控结束")
         result = "\n".join([f"0x{addr:X}," for addr in self.changed_addresses])
         if callback:
             callback(f"监控结束\n找到的地址:\n{result}")
         print(result)
+
+    def scan_from_founded(self,initial_value,pid):
+        #仅扫描changed_addresses中的地址
+        self.found_addresses = []
+        for addr in self.changed_addresses:
+            h_process = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+            if not h_process:
+                print(f"❌ 无法打开进程 (PID: {pid}), 错误代码: {ctypes.get_last_error()}")
+                return self.found_addresses
+
+            try:
+            # 读取内存中的值（假设 initial_value 是 4 字节整数）
+                buffer = ctypes.c_uint()  # 用于存储读取的值
+                bytes_read = ctypes.c_size_t()
+            
+                if ReadProcessMemory(
+                h_process,
+                addr,
+                ctypes.byref(buffer),
+                ctypes.sizeof(buffer),
+                ctypes.byref(bytes_read)
+                ):
+                # 检查读取的值是否等于 initial_value
+                    if buffer.value == initial_value:
+                        self.found_addresses.append(addr)
+                else:
+                    print(f"❌ 读取地址 {hex(addr)} 失败，错误代码: {ctypes.get_last_error()}")
+            finally:
+                CloseHandle(h_process)  # 确保关闭句柄，避免资源泄漏
+        
 
 class GUI:
     def __init__(self, master):
@@ -202,8 +231,14 @@ class GUI:
         self.stop_button = ttk.Button(button_frame, text="停止监控", command=self.stop_monitoring, state=tk.DISABLED)
         self.stop_button.pack(side=tk.LEFT, padx=5)
 
+        self.start_again_button = ttk.Button(button_frame, text="再次监控", command=self.start_again_monitoring, state=tk.DISABLED)
+        self.start_again_button.pack(side=tk.LEFT, padx=5)
+
         self.change_button = ttk.Button(button_frame, text="修改值", command=self.change_value)
         self.change_button.pack(side=tk.LEFT,padx=5)
+
+        self.reset_button = ttk.Button(button_frame, text="重置", command=self.reset)
+        self.reset_button.pack(side=tk.LEFT, padx=5)
         
         # 输出框
         output_frame = ttk.LabelFrame(self.master, text="监控结果", padding=10)
@@ -254,6 +289,7 @@ class GUI:
         self.monitor.monitoring = True
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
+        self.start_again_button.config(state=tk.NORMAL)
         
         self.monitor_thread = threading.Thread(
             target=self.monitor.monitor_changes,
@@ -262,6 +298,37 @@ class GUI:
         )
         self.monitor_thread.start()
     
+    def start_again_monitoring(self):
+        #从已有的数组中监控
+        process_name = self.target_process.get().strip()
+        if not process_name:
+            messagebox.showerror("错误", "请输入目标进程名！")
+            return
+        
+        try:
+            initial_value = int(self.ini_value_entry.get())
+            target_value = int(self.tar_value_entry.get())
+        except ValueError:
+            messagebox.showerror("错误", "初始值和目标值必须是整数！")
+            return
+        pid = self.monitor.get_process_id(process_name)
+        if not pid:
+            messagebox.showerror("错误", f"未找到进程: {process_name}")
+            return
+        self.monitor.scan_from_founded(initial_value,pid)
+        self.log_message(f"找到 {len(self.monitor.found_addresses)} 个可能的内存地址")
+
+        # 启动监控线程
+        self.monitor.monitoring = True
+        self.start_button.config(state=tk.DISABLED)
+        self.stop_button.config(state=tk.NORMAL)
+        self.monitor_thread = threading.Thread(
+            target=self.monitor.monitor_changes,
+            args=(pid, self.monitor.found_addresses, target_value, self.log_message),
+            daemon=True
+        )
+        self.monitor_thread.start()
+
     def stop_monitoring(self):
         """停止监控"""
         self.monitor.monitoring = False
@@ -281,6 +348,16 @@ class GUI:
         gua_api(pid,self.monitor.changed_addresses,new_value)
         for address in self.monitor.changed_addresses:
             self.log_message(f"修改地址0x{address:X} 的值为 {new_value}!")
+
+    def reset(self):
+        """重置监控"""
+        self.monitor.monitoring = False
+        self.start_button.config(state=tk.NORMAL)
+        self.stop_button.config(state=tk.DISABLED)
+        self.start_again_button.config(state=tk.DISABLED)
+        self.monitor.changed_addresses = []
+        self.monitor.found_addresses = []
+        self.log_message("已重置监控")
 
 if __name__ == "__main__":
     root = tk.Tk()
