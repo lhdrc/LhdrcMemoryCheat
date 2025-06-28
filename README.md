@@ -16,11 +16,6 @@
 pip install pywin32 psutil ctypes
 
 ## 构建.exe(请先安装依赖，然后在该文件夹下打开cmd)
-pyinstaller --onefile --windowed \
-            --manifest manifest.xml \
-            --uac-admin \
-            --icon resources/app.ico \
-            --name MemoryEditor \
-            src/Main.py
+pyinstaller --onefile --windowed --manifest resources/manifest.xml --uac-admin --icon=resources/app.ico --name LhdrcMemoryCheat src/Main.py
             
 ## 构建后的exe默认在dist文件夹中！
