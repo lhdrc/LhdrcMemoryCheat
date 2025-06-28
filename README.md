@@ -16,7 +16,10 @@
 - Windows 11
 
 ## 依赖安装（可以创建虚拟环境）
-pip install pywin32 psutil ctypes
+pip install pywin32 
+pip install psutil 
+pip install ctypes
+pip install pyinstaller
 
 ## 构建.exe(请先安装依赖，然后在该文件夹下打开cmd)
 pyinstaller --onefile --windowed --manifest resources/manifest.xml --uac-admin --icon=resources/app.ico --name LhdrcMemoryCheat src/Main.py
